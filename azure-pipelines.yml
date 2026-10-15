@@ -4,13 +4,53 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-steps:
-- script: |
-    echo "Checking build machine Java environment..."
-    java -version
-    javac -version
-    
-    echo "Starting compilation of your Java Network Monitoring Tool..."
-    javac *.java
-    echo "Compilation successful! No syntax or structure errors found."
-  displayName: 'Verify and Compile Java Source Code'
+stages:
+- stage: Build_and_CI
+  displayName: 'Continuous Integration Stage'
+  jobs:
+  - job: Compile_and_Package
+    steps:
+    - script: |
+        echo "Compiling Java source files..."
+        javac *.java
+        
+        echo "Packaging compiled classes into an executable JAR file..."
+        jar cvfe NetworkMonitor.jar Main *.class
+      displayName: 'Compile and Package JAR File'
+
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/NetworkMonitor.jar'
+        artifact: 'production-build'
+        publishLocation: 'pipeline'
+      displayName: 'Upload Artifact to DevOps'
+
+- stage: Deploy_and_CD
+  displayName: 'Continuous Deployment Stage'
+  dependsOn: Build_and_CI
+  condition: succeeded()
+  jobs:
+  - job: GitHub_Release_Deploy
+    steps:
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        buildType: 'current'
+        artifactName: 'production-build'
+        targetPath: '$(Pipeline.Workspace)'
+      displayName: 'Download Build Artifact'
+
+    - task: GitHubRelease@1
+      inputs:
+        gitHubConnection: 'Ewandev11' # This must match your GitHub service connection name
+        repositoryName: '$(Build.Repository.Name)'
+        action: 'create'
+        target: '$(Build.SourceVersion)'
+        tagSource: 'userSpecifiedTag'
+        tag: 'v1.0.$(Build.BuildId)'
+        title: 'Release Build v1.0.$(Build.BuildId)'
+        releaseNotesSource: 'inline'
+        inlineReleaseNotes: 'Automated Continuous Deployment from Azure Pipelines.'
+        assets: '$(Pipeline.Workspace)/NetworkMonitor.jar'
+        changeLogCompareToRelease: 'lastFullRelease'
+        changeLogType: 'commitBased'
+      displayName: 'Deploy Executable to GitHub Releases'
